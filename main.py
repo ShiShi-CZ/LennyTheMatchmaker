@@ -20,6 +20,11 @@ class Lenny(discord.Client):
         self.matchmaking_role = self.guild.get_role(MATCHMAKING_ROLE_ID)
         self.opt_in_users = set()
         self.matchmaking_users = set()
+        self.bot = self.guild.get_member(913547605844299776)
+
+        # Remove it's own reaction before checking them if they are there by any chance
+        await self.message.remove_reaction(REACTION_KEEP_ROLE, self.bot)    # number is the bot's USER ID
+        await self.message.remove_reaction(REACTION_OPT_IN, self.bot)
 
         # Read reactions on the message at startup
         for reaction in self.message.reactions:
@@ -29,6 +34,10 @@ class Lenny(discord.Client):
             if reaction.emoji == REACTION_OPT_IN:
                 users = await reaction.users().flatten()
                 self.opt_in_users = {user.id for user in users}     # set of users who opt in to having role changed based on their Discord presence
+
+        # Add it's own reactions back
+        await self.message.add_reaction(REACTION_KEEP_ROLE)
+        await self.message.add_reaction(REACTION_OPT_IN)
 
 
 intents = discord.Intents.all()
@@ -58,10 +67,12 @@ async def on_raw_reaction_remove(data):
 @lenny.event
 async def on_member_update(_, member):
     # if user is opted in and started playing, add role
-    if member.id in lenny.opt_in_users and member.activity.name == 'Magicka: Wizard Wars' and lenny.matchmaking_role not in member.roles:
-        await member.add_roles(lenny.matchmaking_role, reason='( ͡° ل͜ ͡°)')
+    if member.id in lenny.opt_in_users and member.activity is not None and lenny.matchmaking_role not in member.roles:
+        if member.activity.name == 'Magicka: Wizard Wars':
+            await member.add_roles(lenny.matchmaking_role, reason='( ͡° ل͜ ͡°)')
     # if user is opted in and stopped playing, remove role
-    elif member.id in lenny.opt_in_users and member.id not in lenny.matchmaking_users and member.activity.name != 'Magicka: Wizard Wars' and lenny.matchmaking_role in member.roles:
+    elif member.id in lenny.opt_in_users and member.id not in lenny.matchmaking_users and (member.activity is None or member.activity.name != 'Magicka: Wizard Wars') and lenny.matchmaking_role in member.roles:
+        # if member.activity.name != 'Magicka: Wizard Wars':
         await member.remove_roles(lenny.matchmaking_role, reason='( ͠° ͟ʖ ͡°)')
     # if user is matchmaking_user and the role has been removed for any reason, add it back
     elif member.id in lenny.matchmaking_users and lenny.matchmaking_role not in member.roles:
