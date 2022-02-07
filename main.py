@@ -1,18 +1,34 @@
 import discord
+from discord.ext import commands
 import logging
 from os import environ
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 REACTION_OPT_IN = "🔔"    # :bell:
 REACTION_KEEP_ROLE = "🎮"    # :video_game:
 MATCHMAKING_ROLE_ID = int(environ['MATCHMAKING_ROLE_ID'])   # @matchmaking
 GUILD_ID = int(environ['GUILD_ID'])   # Wizard Wars Reborn discord server
 CHANNEL_ID = int(environ['CHANNEL_ID'])     # Channel where the message to react to is located
 MESSAGE_TO_MONITOR = int(environ['REACTION_MESSAGE'])    # Message where the reacts should be
+ALLOWED_CHANNELS = [int(channel) for channel in environ['ALLOWED_CHANNELS'].split(',')]  # Channels for watching commands
 BOT_TOKEN = environ['LENNYTOKEN']
 
 
-class Lenny(discord.Client):
+class Lenny(commands.Bot):
+    def __init__(self, *args, **kwargs):
+        self.guild = None
+        self.message = None
+        self.matchmaking_users = None
+        self.opt_in_users = None
+        self.matchmaking_role = None
+        self.bot = None
+
+        super().__init__(">", *args, **kwargs)
+
+        # extensions are loaded here
+        self.load_extension('tournament')
+        self.load_extension('admin')
+
     async def on_ready(self):
         print('Ready!')
         self.guild = self.get_guild(GUILD_ID)
@@ -44,7 +60,12 @@ intents = discord.Intents.all()
 lenny = Lenny(intents=intents, activity=discord.Game('Magicka: Wizard Wars'))
 
 
-@lenny.event
+@lenny.check
+def global_check(ctx):
+    return ctx.channel.id in ALLOWED_CHANNELS
+
+
+@lenny.listen()
 async def on_raw_reaction_add(data):
     if data.message_id == MESSAGE_TO_MONITOR and data.emoji.name == REACTION_KEEP_ROLE:
         lenny.matchmaking_users.add(data.user_id)
@@ -54,7 +75,7 @@ async def on_raw_reaction_add(data):
         lenny.opt_in_users.add(data.user_id)
 
 
-@lenny.event
+@lenny.listen()
 async def on_raw_reaction_remove(data):
     member = lenny.guild.get_member(data.user_id)
     if data.message_id == MESSAGE_TO_MONITOR and data.emoji.name == REACTION_OPT_IN:
@@ -64,7 +85,7 @@ async def on_raw_reaction_remove(data):
         await member.remove_roles(lenny.matchmaking_role, reason='( ͠° ͟ʖ ͡°)')
 
 
-@lenny.event
+@lenny.listen()
 async def on_member_update(_, member):
     # if user is opted in and started playing, add role
     if member.id in lenny.opt_in_users and member.activity is not None and lenny.matchmaking_role not in member.roles:
@@ -77,4 +98,6 @@ async def on_member_update(_, member):
     # if user is matchmaking_user and the role has been removed for any reason, add it back
     elif member.id in lenny.matchmaking_users and lenny.matchmaking_role not in member.roles:
         await member.add_roles(lenny.matchmaking_role, reason='( ͡° ل͜ ͡°)')
+
+
 lenny.run(BOT_TOKEN)
