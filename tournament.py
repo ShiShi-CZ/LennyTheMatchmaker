@@ -34,7 +34,6 @@ class JsonDB:
             player.team = dct['team']
             player.discord_id = dct['discord_id']
             player.achievements = dct['achievements']
-            player.bananas = dct['bananas']
             return player
         return dct
 
@@ -45,8 +44,7 @@ class JsonDB:
                     'ingame_name': o.ingame_name,
                     'team': o.team,
                     'discord_id': o.discord_id,
-                    'achievements': o.achievements,
-                    'bananas': o.bananas
+                    'achievements': o.achievements
                     }
         elif isinstance(o, Team):
             return {'name': o.name,
@@ -60,6 +58,7 @@ class Tournament(commands.Cog):
     def __init__(self):
         self.teams_db = JsonDB('teamsDB')
         self.players_db = JsonDB('playersDB')
+        self.member_converter = commands.MemberConverter()
         self.matches = []
         """Match: {
         'team1': team1,
@@ -81,22 +80,22 @@ If you have questions/ideas/whatever, message <@132912730649788416>."""
 
     @commands.group(invoke_without_command=True, aliases=['t'], ignore_extra=False)
     async def tournament(self, ctx):
-        """A command group, grouping all other subcommands. If used without subcommands, sends tournament info."""
+        """If used without subcommands, sends tournament info."""
         await ctx.send(self.info)
         return True
 
     @tournament.command()
     async def register(self, ctx, team_name, *args):
-        """Registers a team and it's players.
+        """Registers a team and it's players. You can mention the player, or write his name as plain text (if he's not on Discord). If the name has spaces, use "double quotes".
 
         :param ctx: Command context
         :param team_name: Name of the team
         :param args: Variable amount of persons to register in the team
         :return: True
         """
-        # if not REGISTRATION_ON:
-        #     await ctx.send(f'The registration hasn\'t been opened yet!')
-        #     return True
+        if not self.registration_open:
+            await ctx.send(f'The registration hasn\'t been opened yet!')
+            return True
         try:
             self.teams_db.find_first('name', team_name)
             await ctx.send(f'Error in team registration: Team with name {team_name} already exists.')
@@ -209,60 +208,124 @@ If you have questions/ideas/whatever, message <@132912730649788416>."""
         self.matches.append({'team1': team1, 'team2': team2, 'winner': None})
         team1 = self.teams_db.find_first('name', team1)
         team2 = self.teams_db.find_first('name', team2)
-        send_string = f'Next up is {team1.name} vs. {team2.name}!\nPlayers, please ready up into the lobby:'
+        send_string = f'**Next up is team {team1.name} vs. team {team2.name}!**\nPlayers, please ready up into the lobby:'
         for team in (team1, team2):
             for player_name in team.players:
                 player = self.players_db.find_first('name', player_name)
                 if player.discord_id:
-                    member = await commands.MemberConverter().convert(ctx,player.discord_id)
-                    send_string += f', {member.mention}'
+                    member = await self.member_converter.convert(ctx, str(player.discord_id))
+                    send_string += f' {member.mention}'
                     continue
-                send_string += f', {player.name}'
-            send_string += f' & '
-        send_string += f'Good luck and have fun!\n'
+                send_string += f' {player.name}'
+            if team is not team2:
+                send_string += f' vs. '
+        send_string += f'\nGood luck and have fun! May the best wizard win :mage:'
         await ctx.send(send_string)
         await self.betting.start_betting(ctx)
 
     @match.command(name='result', aliases=['winner'])
     async def set_match_result(self, ctx, winner):
         try:
-            self.teams_db.find_first('name', winner)
+            winner = self.teams_db.find_first('name', winner)
         except KeyError:
-            await ctx.send(f'{winner} has not been found in the database.')
-        self.matches[-1]['winner'] = winner
-        #TODO implement resolution of the bets
+            await ctx.send(f'{winner.name} has not been found in the database.')
+        self.matches[-1]['winner'] = winner.name
+        send_string = f'Congratulations to winners of this match, team {winner.name}!\n' \
+                      f'Folowing betters have won some bananas:'
+        # sum all the bets and get the proportions
+        team1_bets_sum = sum([bet[1] for bet in self.betting.team1_bets])
+        if team1_bets_sum < 1:
+            team1_bets_sum = 1
+        team2_bets_sum = sum([bet[1] for bet in self.betting.team2_bets])
+        if team2_bets_sum < 1:
+            team2_bets_sum = 1
+        if winner.name == self.matches[-1]['team1']:
+            winning_bets = self.betting.team1_bets
+            odds = team2_bets_sum / team1_bets_sum
+        else:
+            winning_bets = self.betting.team2_bets
+            odds = team1_bets_sum / team2_bets_sum
+        for bet in winning_bets:
+            win = int(bet[1] * odds)
+            self.betting.betters[bet[0]] += win
+            member = await self.member_converter.convert(ctx, str(bet[0]))
+            send_string += f'\n{member.mention}: {win} bananas'
+        await ctx.send(send_string)
 
 
 class Betting(commands.Cog):
     def __init__(self, tournament):
-        self.bets_open = True
+        self.bets_open = False
         self.tournament = tournament
+        self.betters = {}
+        self.team1_bets = []
+        self.team2_bets = []
+        self.starting_amount = 500
+
+    @commands.group(invoke_without_command=True)
+    async def bet(self, ctx, amount: int, team: int):
+        if not self.bets_open:
+            await ctx.send(f'Betting for next match has not been opened yet!')
+            return True
+        discord_id = ctx.author.id
+        bananas = self._get_bananas(discord_id)
+        # check the amount of bananas player has
+        if bananas < amount:
+            await ctx.send(f'{ctx.author.mention}, you don\'t have enough bananas!')
+            return True
+        # if the player has a previous bet, cancel it
+        await self.cancel(ctx, no_output=True)
+        # place the bet
+        if team == 1:
+            self.team1_bets.append((discord_id, amount))
+        elif team == 2:
+            self.team2_bets.append((discord_id, amount))
+        else:
+            await ctx.send(f'{ctx.author.mention}, you didn\'t choose a valid team.')
+            return True
+        # deduct bananas
+        self.betters[discord_id] -= amount
+        await ctx.send(f'{ctx.author.mention}, your bet has been successfully placed!')
+        return True
 
     async def start_betting(self, ctx):
         self.bets_open = True
         team1_name = self.tournament.matches[-1]['team1']
         team2_name = self.tournament.matches[-1]['team2']
         send_string = f'\nTo bet on the match, do the following in #lenny:\n' \
-                      f'`>tournament bet <amount-to-bet> 1` to bet on {team1_name}\n' \
-                      f'`>tournament bet <amount-to-bet> 2` to bet on {team2_name}\n' \
-                      f'To find out how much bananas you have, do `>tournament player @mention`' \
-                      f'If you are not registered yet or have other questions, see `>tournament help'
+                      f'`>bet <amount-to-bet> 1` to bet on {team1_name}\n' \
+                      f'`>bet <amount-to-bet> 2` to bet on {team2_name}\n' \
+                      f'To find out how much bananas you have, do `>bet balance`'
         await ctx.send(send_string)
 
-    @commands.group(invoke_without_command=True)
-    async def bet(self, ctx, amount, team):
-        if not self.bets_open:
-            await ctx.send(f'Betting for next match has not been opened yet!')
-            return True
-        #TODO rest of the actual betting
-
+    @bet.command()
+    async def cancel(self, ctx, no_output=False):
+        for bet_list in (self.team1_bets, self.team2_bets):
+            for x in bet_list:
+                if x[0] == ctx.author.id:
+                    self.betters[ctx.author.id] += x[1]
+                    bet_list.remove(x)
+                    if not no_output:
+                        await ctx.send(f'{ctx.author.mention}, your bet has been canceled.')
+                        return True
+        if not no_output:
+            await ctx.send(f'{ctx.author.mention}, no previous bet to cancel has been found.')
 
     @bet.command()
+    async def balance(self, ctx):
+        bananas = self._get_bananas(ctx.author.id)
+        await ctx.send(f'{ctx.author.mention}, you currently have {bananas} bananas available.')
+
+    @bet.command(aliases=['close'])
     @commands.is_owner()
     async def stop(self, ctx):
         self.bets_open = False
         await ctx.send('The bets for the current match have been closed.')
 
+    def _get_bananas(self, _id):
+        if _id not in self.betters:
+            self.betters[_id] = self.starting_amount
+        return self.betters[_id]
 
 
 class Player:
@@ -272,7 +335,6 @@ class Player:
         self.team = None
         self.discord_id = None
         self.achievements = []
-        self.bananas = 0
 
     def player_info(self):
         send_string = f'Tournament info for {self.name}:\n'
@@ -282,7 +344,6 @@ class Player:
             send_string += 'Not registered in any team\n'
         else:
             send_string += f'Team: {self.team}\n'
-        send_string += f'Bananas: {self.bananas}'
         return send_string
 
 
@@ -304,7 +365,9 @@ class Team:
         return send_string
 
 
+
 # Extension thingie
 def setup(bot):
     tournament = Tournament()
     bot.add_cog(tournament)
+    bot.add_cog(tournament.betting)
