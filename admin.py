@@ -5,7 +5,7 @@ class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(aliases=['a'])
+    @commands.group(aliases=['a'], hidden=True)
     @commands.is_owner()
     async def admin(self, ctx):
         pass
