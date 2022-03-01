@@ -5,7 +5,7 @@ class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(aliases=['a'])
+    @commands.group(aliases=['a'], hidden=True)
     @commands.is_owner()
     async def admin(self, ctx):
         pass
@@ -24,6 +24,14 @@ class Admin(commands.Cog):
         t.players_db.db = []
         t.players_db.save()
         await ctx.send('Database deleted.')
+
+    @admin.command(name='load')
+    async def load_extension(self, ctx, name):
+        try:
+            self.bot.load_extension(name)
+            await ctx.send('Extension loaded successfully.')
+        except commands.ExtensionError as e:
+            await ctx.send(f'Extension loading error: {e}')
 
 
 def setup(bot):

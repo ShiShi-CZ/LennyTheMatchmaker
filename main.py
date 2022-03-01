@@ -10,7 +10,6 @@ MATCHMAKING_ROLE_ID = int(environ['MATCHMAKING_ROLE_ID'])   # @matchmaking
 GUILD_ID = int(environ['GUILD_ID'])   # Wizard Wars Reborn discord server
 CHANNEL_ID = int(environ['CHANNEL_ID'])     # Channel where the message to react to is located
 MESSAGE_TO_MONITOR = int(environ['REACTION_MESSAGE'])    # Message where the reacts should be
-ALLOWED_CHANNELS = [int(channel) for channel in environ['ALLOWED_CHANNELS'].split(',')]  # Channels for watching commands
 BOT_TOKEN = environ['LENNYTOKEN']
 
 
@@ -58,11 +57,6 @@ class Lenny(commands.Bot):
 
 intents = discord.Intents.all()
 lenny = Lenny(intents=intents, activity=discord.Game('Magicka: Wizard Wars'))
-
-
-@lenny.check
-def global_check(ctx):
-    return ctx.channel.id in ALLOWED_CHANNELS
 
 
 @lenny.listen()
