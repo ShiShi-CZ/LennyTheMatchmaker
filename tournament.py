@@ -1,5 +1,7 @@
 import json
-from discord.ext import commands
+from discord.ext import commands, tasks
+import challonge
+import requests
 
 
 class JsonDB:
@@ -55,7 +57,16 @@ class JsonDB:
 
 
 class Tournament(commands.Cog):
-    def __init__(self):
+    CHALLONGE_SUBDOMAIN = "9d7a92ca1e0988a11ef9d7ab"
+    TESTING = True
+
+    def __init__(self, tourney_url, challonge_api_token):
+        if Tournament.TESTING:
+            self.full_url = f"{tourney_url}"
+        else:
+            self.full_url = f"{Tournament.CHALLONGE_SUBDOMAIN}-{tourney_url}"
+        challonge.set_credentials('theshishi', challonge_api_token)
+        self.challonge_tournament = challonge.tournaments.show(self.full_url, include_participants=1, include_matches=1)
         self.teams_db = JsonDB('teamsDB')
         self.players_db = JsonDB('playersDB')
         self.member_converter = commands.MemberConverter()
@@ -87,14 +98,10 @@ Registration status: -
     @tournament.command()
     async def register(self, ctx, team_name, *players):
         """Registers a team and it's players. Usage: `>tournament register <team-name> <player1> <player2>...` (`>tournament` can be shortened to `>t`). You can @mention the player, or write his name as plain text (if he's not on Discord). If the name has spaces, use "double quotes".
-        
-        Preferably register as a full 3-player team. If there will be teams registered with only two or one player, we will try to put them into single team before start; if there will not be enough players to do this, the registration is voided.
 
-        To see details about any team, do `>t team <tesm-name>`
+        To see details about any team, do `>t team <team-name>`
         To see details about a player, do `>t player <player-name>` (again, you can @mention)
         To leave your team, do `>t leave`. If you are a captain, doing this will disband the whole team!
-
-        Example: Max wants to join the tournament, and persuades Fanta and one other friend, Bob the Inquisitor, to join with him. They decide to name their team 'SpanishInquisition'. Fanta is on Discord (@Fantasifoster), but Bob doesn't have a Discord account. To register them, Max sends the following command in #lenny: `>tournament register SpanishInquisition @Fantasifoster "Bob the Inquisitor"`. He then checks that they have been registered correctly by sending command `>tournament team SpanishInquisition`. Since he sees the team has been registered correctly, they start training for the tournament to win - they have only 10 days!
         """
         if not self.registration_open:
             await ctx.send(f'The registration hasn\'t been opened yet!')
@@ -109,16 +116,24 @@ Registration status: -
         for name in players:
             try:
                 _p = await self.member_converter.convert(ctx, name)
-                team_players.append(_p.nick)
+                if _p.nick:
+                    team_players.append(_p.nick)
+                else:
+                    team_players.append(_p.name)
             except commands.MemberNotFound:
                 team_players.append(name)
-        _team = Team(team_name, ctx.author.nick, *team_players)
+        if ctx.author.nick:
+            captain = ctx.author.nick
+        else:
+            captain = ctx.author.name
+        _team = Team(team_name, captain, *team_players)
         print(team_players)
 
         # Update / create Players
         for _player_name in _team.players:
             try:
-                member = await commands.MemberConverter().convert(ctx, _player_name)
+                print(_player_name)
+                member = await self.member_converter.convert(ctx, _player_name)
                 try:
                     _player = self.players_db.find_first('discord_id', member.id)
                     if _player.team is not None:
@@ -146,6 +161,11 @@ Registration status: -
                 _player = Player(_player_name)
                 _player.team = team_name
                 self.players_db.db.append(_player)
+
+        # Register the team on Challonge
+        participant = challonge.participants.create(self.full_url,  _team.name)
+        _team.challonge_id = participant["id"]
+
         self.players_db.save()
         self.teams_db.db.append(_team)
         self.teams_db.save()
@@ -167,6 +187,8 @@ Registration status: -
                     p = self.players_db.find_first('name', name)
                     p.team = None
                 self.teams_db.db.remove(_team)
+                # Remove the team from challonge
+                challonge.participants.destroy(self.full_url, _team.challonge_id)
                 await ctx.send(
                     f'{ctx.author.mention}, you have successfully left team {_team.name}. As you were the captain, the whole team has been disbanded.')
             else:
@@ -208,6 +230,7 @@ Registration status: -
         await ctx.send(_player.player_info())
         return True
 
+    #TODO needs to be adjusted to just pull next match from challonge and start it. Also this won't be needed for the league.
     @tournament.group(invoke_without_command=True, ignore_extra=False)
     @commands.is_owner()
     async def match(self, ctx, team1, team2):
@@ -230,6 +253,7 @@ Registration status: -
         await ctx.send(send_string)
         await self.betting.start_betting(ctx)
 
+    #TODO Needs to be adjusted to be usable automatically after get_played_matches parses the RaT API
     @match.command(name='result', aliases=['winner'])
     async def set_match_result(self, ctx, winner):
         """Sets the winner and resolves all bets of a match. Only admin can use this."""
@@ -259,6 +283,69 @@ Registration status: -
             member = await self.member_converter.convert(ctx, str(bet[0]))
             send_string += f'\n{member.mention}: {win} bananas'
         await ctx.send(send_string)
+
+    @tasks.loop(hours=1)
+    async def get_played_matches(self):
+        # what matches are we looking for (with in-game nicknames)
+        _participants_ids_to_names = {p['participant']['id']: p['participant']['name'] for p in self.challonge_tournament['participants']}
+        _scheduled_matches_as_ids = [(match['match']['player1_id'], match['match']['player2_id']) for match in self.challonge_tournament['matches']]
+        _scheduled_matches = [(_participants_ids_to_names[p1_id], _participants_ids_to_names[p2_id]) for p1_id, p2_id in _scheduled_matches_as_ids]
+        # get in-game nicks of registered teams
+        # frozenset is set, but can't be changed (immutable) and thus can be used as a dict key (a.k.a is hashable - list isn't)
+        ingame_nicks = {frozenset([self.players_db.find_first("name", name).ingame_name for name in team.players]): team.name for team in self.teams_db.db}
+        # load played matches
+        _matches = json.loads(requests.get("http://mww.sonicrat.org/api/").text)
+        # dict {match: [list of tuples of player (nicks, teamID) that have played]
+        player_nicks = {frozenset([(player['Name'], player['TeamID']) for player in match['players']]): match for match in _matches}
+        # MATCH PARSING
+        # take one match
+        print(f'parsing matches.')
+        team1_assert, team1_assert_id, team2_assert = None, None, None
+        for players_in_a_match, match in player_nicks.items():
+            # go through each player in the match
+            for nick, teamID in players_in_a_match:
+                # if it's the first one, find out if they're registered for the tournament
+                print(nick)
+                if (team1_assert and team2_assert) is None:
+                    for nick_list in ingame_nicks:
+                        if nick in nick_list:
+                            # if we find the team player is registered with, all other nick in the match have to belong either to that team
+                            #   or to the one they are playing against (pulled from challonge).
+                            # Try and get the nick list for the second team in the scheduled match
+                            for _team1, _team2 in _scheduled_matches:
+                                if _team1 == ingame_nicks[nick_list]:
+                                    print(f'found team 1: ', _team1)
+                                    for nick_list_2, _team in ingame_nicks.items():
+                                        if _team == _team2:
+                                            print('found team 2: ', _team2)
+                                            # We found the scheduled match and have lists of nicks in both teams
+                                            team2_assert = nick_list_2
+                                            team1_assert = nick_list
+                                            team1_assert_id = teamID  # team1 = team of the first player parsed, internally might be "2"
+                                            break
+                                    break
+                            break
+                    # if it was the first one and we already did not get any results from the parsing above (e.g. player not registered), we are done
+                    if (team1_assert and team2_assert) is None:
+                        team1_assert, team1_assert_id, team2_assert = None, None, None
+                        break
+                # if they are not the first player that's being parsed, then they have to belong to one of the teams.
+                else:
+                    if teamID == team1_assert_id:
+                        if nick in team1_assert:
+                            continue
+                    elif nick in team2_assert:
+                        continue
+                    # if not, we move on to the next team
+                    else:
+                        team1_assert, team1_assert_id, team2_assert = None, None, None
+                        break
+            # if at some point the asserts were broken, then go to next team
+            if (team1_assert and team2_assert) is None:
+                continue
+            #TODO parse the match and set winner
+
+
 
 
 class Betting(commands.Cog):
@@ -369,6 +456,7 @@ class Team:
         for person in args:
             self.players.add(person)
         self.players.add(captain)
+        self.challonge_id = None
 
     def team_info(self):
         send_string = f'Team {self.name}:\n'
@@ -381,6 +469,6 @@ class Team:
 
 # Extension thingie
 def setup(bot):
-    tournament = Tournament()
+    tournament = Tournament(bot.tournament_id, bot.challonge_api_token)
     bot.add_cog(tournament)
     bot.add_cog(tournament.betting)

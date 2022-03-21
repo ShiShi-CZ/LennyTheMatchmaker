@@ -33,6 +33,13 @@ class Admin(commands.Cog):
         except commands.ExtensionError as e:
             await ctx.send(f'Extension loading error: {e}')
 
+    @admin.command(name='parse')
+    async def force_match_parsing(self, _):
+        print(self.bot.cogs)
+        for cog_name, cog in self.bot.cogs.items():
+            if cog_name == 'Tournament':
+                await cog.get_played_matches.__call__()
+
 
 def setup(bot):
     bot.add_cog(Admin(bot))
