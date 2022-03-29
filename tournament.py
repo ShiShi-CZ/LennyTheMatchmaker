@@ -289,62 +289,83 @@ Registration status: -
         # what matches are we looking for (with in-game nicknames)
         _participants_ids_to_names = {p['participant']['id']: p['participant']['name'] for p in self.challonge_tournament['participants']}
         _scheduled_matches_as_ids = [(match['match']['player1_id'], match['match']['player2_id']) for match in self.challonge_tournament['matches']]
-        _scheduled_matches = [(_participants_ids_to_names[p1_id], _participants_ids_to_names[p2_id]) for p1_id, p2_id in _scheduled_matches_as_ids]
+        # [((team1_name, team1_challonge_id), (team2_name, team2_challonge_id)), (different two teams), ...]
+        _scheduled_matches = [((_participants_ids_to_names[p1_id], p1_id), (_participants_ids_to_names[p2_id], p2_id)) for p1_id, p2_id in _scheduled_matches_as_ids]
         # get in-game nicks of registered teams
         # frozenset is set, but can't be changed (immutable) and thus can be used as a dict key (a.k.a is hashable - list isn't)
         ingame_nicks = {frozenset([self.players_db.find_first("name", name).ingame_name for name in team.players]): team.name for team in self.teams_db.db}
         # load played matches
         _matches = json.loads(requests.get("http://mww.sonicrat.org/api/").text)
-        # dict {match: [list of tuples of player (nicks, teamID) that have played]
+        # dict {[frozenset of tuples of player (nicks, teamID) that have played]: match}
         player_nicks = {frozenset([(player['Name'], player['TeamID']) for player in match['players']]): match for match in _matches}
         # MATCH PARSING
         # take one match
         print(f'parsing matches.')
-        team1_assert, team1_assert_id, team2_assert = None, None, None
+        team1, team2 = None, None
         for players_in_a_match, match in player_nicks.items():
-            # go through each player in the match
+            # go through each player in the match (MWW)
             for nick, teamID in players_in_a_match:
                 # if it's the first one, find out if they're registered for the tournament
-                print(nick)
-                if (team1_assert and team2_assert) is None:
+                if (team1 and team2) is None:
                     for nick_list in ingame_nicks:
                         if nick in nick_list:
                             # if we find the team player is registered with, all other nick in the match have to belong either to that team
                             #   or to the one they are playing against (pulled from challonge).
                             # Try and get the nick list for the second team in the scheduled match
                             for _team1, _team2 in _scheduled_matches:
-                                if _team1 == ingame_nicks[nick_list]:
-                                    print(f'found team 1: ', _team1)
+                                if _team1[0] == ingame_nicks[nick_list]:
+                                    print(f'found team 1: ', _team1[0])
                                     for nick_list_2, _team in ingame_nicks.items():
-                                        if _team == _team2:
-                                            print('found team 2: ', _team2)
+                                        if _team == _team2[0]:
+                                            print('found team 2: ', _team2[0])
                                             # We found the scheduled match and have lists of nicks in both teams
-                                            team2_assert = nick_list_2
-                                            team1_assert = nick_list
-                                            team1_assert_id = teamID  # team1 = team of the first player parsed, internally might be "2"
+                                            # (team_name, team_challonge_id, MWW_match_team_ID, {set of player nicks})
+                                            team1 = (_team1[0], _team1[1], teamID, nick_list)
+                                            if team1[2] == 1:       # pokud v MWW je team1 == 1, tak team2 = 2; jinak 1
+                                                team2 = (_team2[0], _team2[1], 2, nick_list_2)
+                                            elif team1[2] == 2:
+                                                team2 = (_team2[0], _team2[1], 1, nick_list_2)
                                             break
                                     break
                             break
                     # if it was the first one and we already did not get any results from the parsing above (e.g. player not registered), we are done
-                    if (team1_assert and team2_assert) is None:
-                        team1_assert, team1_assert_id, team2_assert = None, None, None
+                    if (team1 and team2) is None:
+                        team1, team2 = None, None
                         break
                 # if they are not the first player that's being parsed, then they have to belong to one of the teams.
                 else:
-                    if teamID == team1_assert_id:
-                        if nick in team1_assert:
+                    if teamID == team1[2]:
+                        if nick in team1[3]:
                             continue
-                    elif nick in team2_assert:
+                    elif nick in team2[3]:
                         continue
                     # if not, we move on to the next team
                     else:
-                        team1_assert, team1_assert_id, team2_assert = None, None, None
+                        team1, team2 = None, None
                         break
             # if at some point the asserts were broken, then go to next team
-            if (team1_assert and team2_assert) is None:
+            if (team1 and team2) is None:
                 continue
-            #TODO parse the match and set winner
 
+            # If we get here, then the match is the one played for the league
+            # Check the winner
+            if match['winner'] == team1[2]:
+                winner = team1
+            elif match['winner'] == team2[2]:
+                winner = team2
+            # Set the challonge match
+            # We need a challonge match ID for that!
+            # use _participant_names_to_IDs to code team names back to their challonge IDs then find the match with both of them.
+            _team1_id, _team2_id = None, None
+            for _id, _team_name in _participants_ids_to_names.items():
+                if _team_name == team1[0]:
+                    _team1_id = _id
+                elif _team_name == team2[0]:
+                    _team2_id = _id
+            for _challonge_match in self.challonge_tournament['matches']:
+                if (_challonge_match['match']['player1_id'] == _team1_id or _challonge_match['match']['player1_id'] == _team2_id) and \
+                    (_challonge_match['match']['player2_id'] == _team1_id or _challonge_match['match']['player2_id'] == _team2_id):
+                    challonge.matches.update(self.full_url, _challonge_match['match']['id'], scores_csv='1-1', winner_id=str(winner[1]))
 
 
 
@@ -465,6 +486,17 @@ class Team:
             send_string += f'\n -> {player}'
         send_string += f'\nCaptain: {self.captain}'
         return send_string
+
+
+class Match:
+    def __init__(self, match_id):
+        self.id = match_id
+        self.team1 = None
+        self.team1_players = None
+        self.team2 = None
+        self.team2_players = None
+        self.winner = None
+
 
 
 # Extension thingie
