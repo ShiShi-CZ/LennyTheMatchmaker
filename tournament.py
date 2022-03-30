@@ -409,6 +409,17 @@ class Team:
         return send_string
 
 
+class Match:
+    def __init__(self, match_id):
+        self.id = match_id
+        self.team1 = None
+        self.team1_players = None
+        self.team2 = None
+        self.team2_players = None
+        self.winner = None
+
+
+
 # Extension thingie
 def setup(bot):
     tournament = Tournament(bot.tournament_id, bot.challonge_api_token)
