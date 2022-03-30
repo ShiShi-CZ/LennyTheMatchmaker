@@ -35,7 +35,6 @@ class Admin(commands.Cog):
 
     @admin.command(name='parse')
     async def force_match_parsing(self, _):
-        print(self.bot.cogs)
         for cog_name, cog in self.bot.cogs.items():
             if cog_name == 'Tournament':
                 await cog.get_played_matches.__call__()
