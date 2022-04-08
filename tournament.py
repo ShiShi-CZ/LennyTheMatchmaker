@@ -87,6 +87,14 @@ class Tournament(commands.Cog):
 Registration status: -
 """
 
+    @staticmethod
+    # small method to make sure we don't have issues with nicks vs. names on discord
+    def _get_discord_nick(ctx):
+        if not ctx.author.nick:
+            return ctx.author.name
+        else:
+            return ctx.author.nick
+
     @commands.command()
     async def register(self, ctx, ingame_name):
         """
@@ -99,7 +107,7 @@ Registration status: -
         # Check if the user is already registered
         try:
             self.players_db.find_first("discord_id", ctx.author.id)
-            self.players_db.find_first("name", ctx.author.nick)
+            self.players_db.find_first("name", self._get_discord_nick(ctx))
             self.players_db.find_first("ingame_name", ingame_name)
             await ctx.send(f'{ctx.author.mention}, you are already registered!')
             return
@@ -107,7 +115,7 @@ Registration status: -
             pass
 
         # create the player and save him into the database.
-        self.players_db.db.append(Player(ctx.author.nick, ingame_name=ingame_name, discord_id=ctx.author.id))
+        self.players_db.db.append(Player(self._get_discord_nick(ctx), ingame_name=ingame_name, discord_id=ctx.author.id))
         self.players_db.save()
         await ctx.send(f"{ctx.author.mention}, you have been registered successfully.")
 
@@ -122,7 +130,17 @@ Registration status: -
         """
         try:
             _team = self.teams_db.find_first("name", team_name)
-            await ctx.send(_team.team_info())
+            player_names = []
+            for player_id in _team.players:
+                _p = self.players_db.find_first("discord_id", player_id)
+                player_names.append((_p.name, _p.ingame_name))
+            captain = self.players_db.find_first("discord_id", _team.captain)
+            send_string = f"Team {_team.name}:\n" \
+                          f"Players:\n"
+            for player in player_names:
+                send_string += f"-> {player[0]} ({player[1]})\n"
+            send_string += f'Captain: {captain.name} ({captain.ingame_name})'
+            await ctx.send(send_string)
         except KeyError:
             await ctx.send(f"Team {team_name} has not been found.")
 
@@ -136,7 +154,7 @@ Registration status: -
             pass
         team_players = []
         players = list(players)
-        players.append(ctx.author.name)
+        players.append(self._get_discord_nick(ctx))
         for name in players:
             try:
                 _p = None
@@ -178,24 +196,6 @@ Registration status: -
             await ctx.send(f"{ctx.author.mention}, you have left team {_team.name} successfully.")
         self.players_db.save()
         self.teams_db.save()
-
-    # TODO Needs to be adjusted to be usable automatically after get_played_matches parses the RaT API
-    @commands.command(name='result', aliases=['winner'])
-    @commands.is_owner()
-    async def set_match_result(self, ctx, winner):
-        """Sets the winner and resolves all bets of a match. Only admin can use this."""
-        # sum all the bets and get the proportions
-        team1_bets_sum = sum([bet[1] for bet in self.betting.team1_bets])
-        if team1_bets_sum < 100:
-            team1_bets_sum = 100
-        team2_bets_sum = sum([bet[1] for bet in self.betting.team2_bets])
-        if team2_bets_sum < 100:
-            team2_bets_sum = 100
-        # TODO: Check who is the winner in regards to bets (this should be done after the Betting class is updated)
-
-        # for bet in winning_bets:
-        #    win = int(bet[1] * odds)
-        #    self.betting.betters[bet[0]] += win
 
     @tasks.loop(hours=1)
     async def get_played_matches(self):
@@ -379,16 +379,6 @@ class Player:
         self.discord_id = discord_id
         self.achievements = []
 
-    def player_info(self):
-        send_string = f'Tournament info for {self.name}:\n'
-        if self.ingame_name is not None:
-            send_string += f'In-game nick: {self.ingame_name}\n'
-        if self.team is None:
-            send_string += 'Not registered in any team\n'
-        else:
-            send_string += f'Team: {self.team}\n'
-        return send_string
-
 
 class Team:
     def __init__(self, name, captain, *args, challonge_id=None):
@@ -399,25 +389,6 @@ class Team:
             self.players.add(person)
         self.players.add(captain)
         self.challonge_id = challonge_id
-
-    def team_info(self):
-        send_string = f'Team {self.name}:\n'
-        send_string += f'Players: '
-        for player in self.players:
-            send_string += f'\n -> {player}'
-        send_string += f'\nCaptain: {self.captain}'
-        return send_string
-
-
-class Match:
-    def __init__(self, match_id):
-        self.id = match_id
-        self.team1 = None
-        self.team1_players = None
-        self.team2 = None
-        self.team2_players = None
-        self.winner = None
-
 
 
 # Extension thingie
