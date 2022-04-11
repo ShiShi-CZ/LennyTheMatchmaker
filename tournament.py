@@ -35,7 +35,6 @@ class JsonDB:
             player.ingame_name = dct['ingame_name']
             player.team = dct['team']
             player.discord_id = dct['discord_id']
-            player.achievements = dct['achievements']
             return player
         return dct
 
@@ -45,8 +44,7 @@ class JsonDB:
             return {'name': o.name,
                     'ingame_name': o.ingame_name,
                     'team': o.team,
-                    'discord_id': o.discord_id,
-                    'achievements': o.achievements
+                    'discord_id': o.discord_id
                     }
         elif isinstance(o, Team):
             return {'name': o.name,
@@ -59,7 +57,7 @@ class JsonDB:
 
 class Tournament(commands.Cog):
     CHALLONGE_SUBDOMAIN = "9d7a92ca1e0988a11ef9d7ab"
-    TESTING = True
+    TESTING = False
 
     def __init__(self, tourney_url, challonge_api_token):
         if Tournament.TESTING:
@@ -71,16 +69,10 @@ class Tournament(commands.Cog):
         self.teams_db = JsonDB('teamsDB')
         self.players_db = JsonDB('playersDB')
         self.member_converter = commands.MemberConverter()
-        self.matches = []
-        """Match: {
-        'team1': team1,
-        'team2': team2,
-        'winner': winner (is None before winner is set)
-        'score': (team1_score, team2_score) <- tuple
-        }"""
-        self.registration_open = True
+        self.registration_open = False
         self.registration_date = None
-        self.betting = Betting(self)
+        # Betting disabled for now
+        # self.betting = Betting(self)
         self.bets_open = False
         self.date = None
         self.info = f"""Next tournament date: Unknown
@@ -146,6 +138,13 @@ Registration status: -
 
     @team.command(name='register')
     async def team_register(self, ctx, team_name, *players):
+        """
+        Register a team for the tournament.
+
+        :param team_name:
+        :param players:
+        :return:
+        """
         try:
             self.teams_db.find_first('name', team_name)
             await ctx.send(f'Error in team registration: Team with name {team_name} already exists.')
@@ -157,7 +156,6 @@ Registration status: -
         players.append(self._get_discord_nick(ctx))
         for name in players:
             try:
-                _p = None
                 _p = await self.member_converter.convert(ctx, name)
                 _player = self.players_db.find_first("discord_id", _p.id)
                 team_players.append(_p.id)
@@ -178,6 +176,11 @@ Registration status: -
 
     @team.command(name='leave')
     async def team_leave(self, ctx):
+        """
+        Leave the team you're currently registered with. If you are a captain, the team will be disbanded.
+        :param ctx:
+        :return:
+        """
         try:
             _player = self.players_db.find_first("discord_id", ctx.author.id)
             _team = self.teams_db.find_first("name", _player.team)
@@ -290,6 +293,7 @@ Registration status: -
                     challonge.matches.update(self.full_url, _challonge_match['match']['id'], scores_csv='1-1', winner_id=str(winner[1]))
 
 
+# BETTING IS NOT UPDATED, DONT USE
 class Betting(commands.Cog):
     def __init__(self, tournament):
         self.bets_open = False
@@ -377,7 +381,6 @@ class Player:
         self.ingame_name = ingame_name
         self.team = team
         self.discord_id = discord_id
-        self.achievements = []
 
 
 class Team:
@@ -395,4 +398,5 @@ class Team:
 def setup(bot):
     tournament = Tournament(bot.tournament_id, bot.challonge_api_token)
     bot.add_cog(tournament)
-    bot.add_cog(tournament.betting)
+    # Betting not used at the moment
+    # bot.add_cog(tournament.betting)
