@@ -21,7 +21,8 @@ class Lenny(commands.Bot):
         self.opt_in_users = None
         self.matchmaking_role = None
         self.bot = None
-
+        self.tournament_id = environ['CHALLONGE_TOURNAMENT_ID']
+        self.challonge_api_token = environ['CHALLONGE_API_TOKEN']
         super().__init__(">", *args, **kwargs)
 
         # extensions are loaded here
