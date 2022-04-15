@@ -57,7 +57,7 @@ class JsonDB:
 
 class Tournament(commands.Cog):
     CHALLONGE_SUBDOMAIN = "9d7a92ca1e0988a11ef9d7ab"
-    TESTING = False
+    TESTING = True
 
     def __init__(self, tourney_url, challonge_api_token):
         if Tournament.TESTING:
