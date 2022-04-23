@@ -111,6 +111,18 @@ Registration status: -
         self.players_db.save()
         await ctx.send(f"{ctx.author.mention}, you have been registered successfully.")
 
+    @commands.command()
+    async def changenick(self, ctx, new_name):
+        try:
+            player = self.players_db.find_first("discord_id", ctx.author.id)
+        except KeyError:
+            await ctx.send(f'{ctx.author.mention}, you are not registered yet!')
+            return True
+        player.ingame_name = new_name
+        self.players_db.save()
+        await ctx.send(f'{ctx.author.mention}, your ingame name has been change to {new_name} successfully.')
+        return True
+
     @commands.group(aliases=['t'], invoke_without_command=True, ignore_extra=False)
     async def team(self, ctx, team_name):
         """
