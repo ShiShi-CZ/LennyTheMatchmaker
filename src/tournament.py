@@ -95,11 +95,11 @@ class Tournament(commands.Cog):
             return True
         # Check if the user is already registered
         try:
-            self.players_db.find_first("discord_id", ctx.author.id)
-            self.players_db.find_first("name", self._get_discord_nick(ctx))
-            self.players_db.find_first("ingame_name", ingame_name)
-            await ctx.send(f'{ctx.author.mention}, you are already registered!')
-            return
+            if self.players_db.find_first("discord_id", ctx.author.id) or \
+              self.players_db.find_first("name", self._get_discord_nick(ctx)) or \
+              self.players_db.find_first("ingame_name", ingame_name):
+                await ctx.send(f'{ctx.author.mention}, you are already registered!')
+                return
         except KeyError:
             pass
 
@@ -168,6 +168,7 @@ class Tournament(commands.Cog):
         """
         Register a team for the tournament.
 
+        :param ctx:
         :param team_name:
         :param players:
         :return:
@@ -185,6 +186,9 @@ class Tournament(commands.Cog):
             try:
                 _p = await self.member_converter.convert(ctx, name)
                 _player = self.players_db.find_first("discord_id", _p.id)
+                if _player.team:
+                    await ctx.send(f'Cannot register the team. {_p.mention} is already registered with team {_player.team}.')
+                    return True
                 team_players.append(_p.id)
                 _player.team = team_name
             except commands.MemberNotFound:
@@ -246,6 +250,9 @@ class Tournament(commands.Cog):
         print(f'Parsing matches.')
         team1, team2 = None, None
         for players_in_a_match, match in player_nicks.items():
+            # first check the mode
+            if match['mode'] != 'melee':
+                continue
             # go through each player in the match (MWW)
             for nick, teamID in players_in_a_match:
                 # if it's the first one, find out if they're registered for the tournament
@@ -302,6 +309,9 @@ class Tournament(commands.Cog):
             elif match['winner'] == team2[2]:
                 winner = team2
                 print(f'Winner: {team2[0]}')
+            else:
+                # if the match has been ended before finished, there's no winner
+                continue
             # Set the challonge match
             # We need a challonge match ID for that!
             # use _participant_names_to_IDs to code team names back to their challonge IDs then find the match with both of them.
@@ -315,7 +325,7 @@ class Tournament(commands.Cog):
             for _challonge_match in self.challonge_tournament['matches']:
                 print(f'Looking for the match between those.')
                 if (_challonge_match['match']['player1_id'] == _team1_id or _challonge_match['match']['player1_id'] == _team2_id) and \
-                    (_challonge_match['match']['player2_id'] == _team1_id or _challonge_match['match']['player2_id'] == _team2_id):
+                   (_challonge_match['match']['player2_id'] == _team1_id or _challonge_match['match']['player2_id'] == _team2_id):
                     print(f'Found the match, trying to update...')
                     challonge.matches.update(self.full_url, _challonge_match['match']['id'], scores_csv='1-1', winner_id=str(winner[1]))
 
