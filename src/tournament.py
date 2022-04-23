@@ -70,14 +70,8 @@ class Tournament(commands.Cog):
         self.players_db = JsonDB('playersDB')
         self.member_converter = commands.MemberConverter()
         self.registration_open = False
-        self.registration_date = None
         # Betting disabled for now
         # self.betting = Betting(self)
-        self.bets_open = False
-        self.date = None
-        self.info = f"""Next tournament date: Unknown
-Registration status: -
-"""
 
     @staticmethod
     # small method to make sure we don't have issues with nicks vs. names on discord
@@ -96,6 +90,9 @@ Registration status: -
         :param ingame_name:
         :return:
         """
+        if not (self.registration_open or Tournament.TESTING):
+            await ctx.send(f'The registration has not been opened yet!')
+            return True
         # Check if the user is already registered
         try:
             self.players_db.find_first("discord_id", ctx.author.id)
@@ -122,6 +119,24 @@ Registration status: -
         self.players_db.save()
         await ctx.send(f'{ctx.author.mention}, your ingame name has been change to {new_name} successfully.')
         return True
+
+    @commands.command()
+    async def player(self, ctx, player_name):
+        try:
+            user = await self.member_converter.convert(ctx, player_name)
+        except commands.MemberNotFound:
+            await ctx.send(f'{ctx.author.mention}, wrong argument.')
+            return True
+        try:
+            player = self.players_db.find_first("discord_id", user.id)
+        except KeyError:
+            await ctx.send(f'{ctx.author.mention}, {user.mention} is not registered.')
+            return True
+
+        if player.team:
+            await ctx.send(f'{user.mention} is currently playing with team {player.team}.')
+        else:
+            await ctx.send(f'{user.mention} is currently not playing with any team.')
 
     @commands.group(aliases=['t'], invoke_without_command=True, ignore_extra=False)
     async def team(self, ctx, team_name):
