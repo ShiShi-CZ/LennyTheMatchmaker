@@ -5,7 +5,6 @@ from discord.ext import commands, tasks
 import challonge
 import requests
 from os import environ
-"test commit"
 
 class JsonDB:
     def __init__(self, db_name):
