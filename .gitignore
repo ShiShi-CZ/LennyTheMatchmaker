@@ -1,2 +1,4 @@
 /variables.env
 /venv/
+/src/playersDB.json
+/src/teamsDB.json
