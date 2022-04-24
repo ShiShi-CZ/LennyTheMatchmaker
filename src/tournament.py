@@ -32,12 +32,9 @@ class JsonDB:
     @staticmethod
     def _decoder(dct):
         if 'captain' in dct.keys():
-            return Team(dct['name'], dct['captain'], *dct['players'], challonge_id=dct['challonge_id'])
+            return Team(dct['name'], dct['captain'], *dct['players'], challonge_id=dct['challonge_id'], discord_role=dct['discord_role'])
         elif 'discord_id' in dct.keys():
-            player = Player(dct['name'])
-            player.ingame_name = dct['ingame_name']
-            player.team = dct['team']
-            player.discord_id = dct['discord_id']
+            player = Player(dct['name'], ingame_name=dct['ingame_name'], team=dct['team'], discord_id=dct['discord_id'])
             return player
         return dct
 
@@ -53,7 +50,8 @@ class JsonDB:
             return {'name': o.name,
                     'captain': o.captain,
                     'players': list(o.players),
-                    'challonge_id': o.challonge_id
+                    'challonge_id': o.challonge_id,
+                    'discord_role': o.discord_role
                     }
         return json.JSONEncoder().default(o)
 
@@ -216,9 +214,9 @@ class Tournament(commands.Cog):
         _team.challonge_id = participant["id"]
 
         # Create a discord team role and assign it to the players.
-        team_discord_role = await ctx.guild.create_role(name=_team.name, mentionable=True, colour=discord.Colour.random(), reason=f'Role for the league team.').id
+        team_discord_role = await ctx.guild.create_role(name=_team.name, mentionable=True, colour=discord.Colour.random(), reason=f'Role for the league team.')
         _team.discord_role = team_discord_role.id
-        for player in _team.players:
+        for player in [self.players_db.find_first("discord_id", player_id) for player_id in _team.players]:
             discord_user = await self.member_converter.convert(ctx, player.name)
             await discord_user.add_roles(team_discord_role, reason='Role for the league team.')
 
@@ -247,6 +245,10 @@ class Tournament(commands.Cog):
             self.teams_db.db.remove(_team)
             # Remove the team from challonge
             challonge.participants.destroy(self.full_url, _team.challonge_id)
+            # Destroy the discord role
+            for role in ctx.author.roles:
+                if role.id == _team.discord_role:
+                    await role.delete(reason="Team unregistered.")
             await ctx.send(f"{ctx.author.mention}, as you were the captain of the team, the whole team {_team.name} has been disbanded.")
         else:
             await ctx.send(f"{ctx.author.mention}, you have left team {_team.name} successfully.")
