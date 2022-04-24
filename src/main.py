@@ -95,4 +95,12 @@ async def on_member_update(_, member):
         await member.add_roles(lenny.matchmaking_role, reason='( ͡° ل͜ ͡°)')
 
 
+@lenny.check
+async def test_or_production(ctx):
+    if int(environ['TESTING']) and ctx.guild.id == 765616930367078411:  # Bot Test Server
+        return True
+    elif not int(environ['TESTING']) and ctx.guild.id == 278378411095883776:    # MWW server
+        return True
+    return False
+
 lenny.run(BOT_TOKEN)
