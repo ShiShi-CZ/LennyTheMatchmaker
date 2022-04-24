@@ -2,6 +2,7 @@ import json
 from discord.ext import commands, tasks
 import challonge
 import requests
+from os import environ
 
 
 class JsonDB:
@@ -57,7 +58,7 @@ class JsonDB:
 
 class Tournament(commands.Cog):
     CHALLONGE_SUBDOMAIN = "9d7a92ca1e0988a11ef9d7ab"
-    TESTING = True
+    TESTING = int(environ['TESTING'])
 
     def __init__(self, tourney_url, challonge_api_token):
         if Tournament.TESTING:
@@ -69,7 +70,7 @@ class Tournament(commands.Cog):
         self.teams_db = JsonDB('teamsDB')
         self.players_db = JsonDB('playersDB')
         self.member_converter = commands.MemberConverter()
-        self.registration_open = False
+        self.registration_open = int(environ['REGISTRATION_OPEN'])
         # Betting disabled for now
         # self.betting = Betting(self)
 
