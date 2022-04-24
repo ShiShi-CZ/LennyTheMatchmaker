@@ -1,4 +1,6 @@
 import json
+
+import discord
 from discord.ext import commands, tasks
 import challonge
 import requests
@@ -111,6 +113,12 @@ class Tournament(commands.Cog):
 
     @commands.command()
     async def changenick(self, ctx, new_name):
+        """
+        Changes your in-game nick that you have set during the registration."
+        :param ctx:
+        :param new_name:
+        :return:
+        """
         try:
             player = self.players_db.find_first("discord_id", ctx.author.id)
         except KeyError:
@@ -123,6 +131,12 @@ class Tournament(commands.Cog):
 
     @commands.command()
     async def player(self, ctx, player_name):
+        """
+        Mention a discord user in this command to see if he's registered and playing for any team.
+        :param ctx:
+        :param player_name:
+        :return:
+        """
         try:
             user = await self.member_converter.convert(ctx, player_name)
         except commands.MemberNotFound:
@@ -200,6 +214,13 @@ class Tournament(commands.Cog):
         _team = Team(team_name, ctx.author.id, *team_players)
         participant = challonge.participants.create(self.full_url, _team.name)
         _team.challonge_id = participant["id"]
+
+        # Create a discord team role and assign it to the players.
+        team_discord_role = await ctx.guild.create_role(name=_team.name, mentionable=True, colour=discord.Colour.random(), reason=f'Role for the league team.').id
+        _team.discord_role = team_discord_role.id
+        for player in _team.players:
+            discord_user = await self.member_converter.convert(ctx, player.name)
+            await discord_user.add_roles(team_discord_role, reason='Role for the league team.')
 
         self.teams_db.db.append(_team)
         self.teams_db.save()
@@ -422,7 +443,7 @@ class Player:
 
 
 class Team:
-    def __init__(self, name, captain, *args, challonge_id=None):
+    def __init__(self, name, captain, *args, challonge_id=None, discord_role=None):
         self.name = name
         self.captain = captain
         self.players = set()
@@ -430,6 +451,7 @@ class Team:
             self.players.add(person)
         self.players.add(captain)
         self.challonge_id = challonge_id
+        self.discord_role = discord_role
 
 
 # Extension thingie
