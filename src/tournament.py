@@ -149,9 +149,9 @@ class Tournament(commands.Cog):
             return True
 
         if player.team:
-            await ctx.send(f'{user.mention} is currently playing with team {player.team}.')
+            await ctx.send(f'{user.mention} *({player.ingame_name})* is currently playing with team {player.team}.')
         else:
-            await ctx.send(f'{user.mention} is currently not playing with any team.')
+            await ctx.send(f'{user.mention} *({player.ingame_name})* is currently not playing with any team.')
 
     @commands.group(aliases=['t'], invoke_without_command=True, ignore_extra=False)
     async def team(self, ctx, team_name):
