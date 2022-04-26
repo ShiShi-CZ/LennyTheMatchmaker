@@ -75,11 +75,14 @@ class Tournament(commands.Cog):
 
     @staticmethod
     # small method to make sure we don't have issues with nicks vs. names on discord
-    def _get_discord_nick(ctx):
-        if not ctx.author.nick:
-            return ctx.author.name
+    def _get_discord_nick(ctx, user=None):
+        if user is None:
+            user = ctx.author
+
+        if not user.nick:
+            return user.name
         else:
-            return ctx.author.nick
+            return user.nick
 
     @commands.command()
     async def register(self, ctx, ingame_name):
@@ -351,6 +354,16 @@ class Tournament(commands.Cog):
                    (_challonge_match['match']['player2_id'] == _team1_id or _challonge_match['match']['player2_id'] == _team2_id):
                     print(f'Found the match, trying to update...')
                     challonge.matches.update(self.full_url, _challonge_match['match']['id'], scores_csv='1-1', winner_id=str(winner[1]))
+
+    @commands.command(name="listplayers")
+    async def list_players(self, ctx):
+        send_string = f"Registered players:"
+        for player in self.players_db.db:
+            d_user = await self.member_converter.convert(ctx, str(player.discord_id))
+            send_string += f"\n{self._get_discord_nick(ctx, user=d_user)} ({player.ingame_name})"
+            if player.team:
+                send_string += f" - team {player.team}"
+        await ctx.send(send_string)
 
 
 # BETTING IS NOT UPDATED, DONT USE
