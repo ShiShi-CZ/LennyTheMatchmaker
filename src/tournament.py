@@ -247,10 +247,15 @@ class Tournament(commands.Cog):
             self.teams_db.db.remove(_team)
             # Remove the team from challonge
             challonge.participants.destroy(self.full_url, _team.challonge_id)
-            # Destroy the discord role
-            for role in ctx.author.roles:
-                if role.id == _team.discord_role:
-                    await role.delete(reason="Team unregistered.")
+            # Delete the team from everyone's profiles
+            team_players = [self.players_db.find_first("discord_id", _id) for _id in _team.players]
+            for player in team_players:
+                player.team = None
+                d_user = await self.member_converter.convert(ctx, str(player.discord_id))
+                # Destroy the discord role
+                for role in d_user.roles:
+                    if role.id == _team.discord_role:
+                        await role.delete(reason="Team unregistered.")
             await ctx.send(f"{ctx.author.mention}, as you were the captain of the team, the whole team {_team.name} has been disbanded.")
         else:
             await ctx.send(f"{ctx.author.mention}, you have left team {_team.name} successfully.")
