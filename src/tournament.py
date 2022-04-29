@@ -87,11 +87,7 @@ class Tournament(commands.Cog):
     @commands.command()
     async def register(self, ctx, ingame_name):
         """
-        Register a player.
-
-        :param ctx:
-        :param ingame_name:
-        :return:
+        Register yourself for the tournament.
         """
         if not (self.registration_open or Tournament.TESTING):
             await ctx.send(f'The registration has not been opened yet!')
@@ -115,9 +111,6 @@ class Tournament(commands.Cog):
     async def changenick(self, ctx, new_name):
         """
         Changes your in-game nick that you have set during the registration."
-        :param ctx:
-        :param new_name:
-        :return:
         """
         try:
             player = self.players_db.find_first("discord_id", ctx.author.id)
@@ -133,9 +126,6 @@ class Tournament(commands.Cog):
     async def player(self, ctx, player_name):
         """
         Mention a discord user in this command to see if he's registered and playing for any team.
-        :param ctx:
-        :param player_name:
-        :return:
         """
         try:
             user = await self.member_converter.convert(ctx, player_name)
@@ -157,10 +147,6 @@ class Tournament(commands.Cog):
     async def team(self, ctx, team_name):
         """
         Command group for calling team-related commands. Can be called by itself to show info about a team.
-
-        :param ctx:
-        :param team_name:
-        :return:
         """
         try:
             _team = self.teams_db.find_first("name", team_name)
@@ -181,12 +167,7 @@ class Tournament(commands.Cog):
     @team.command(name='register')
     async def team_register(self, ctx, team_name, *players):
         """
-        Register a team for the tournament.
-
-        :param ctx:
-        :param team_name:
-        :param players:
-        :return:
+        Register a team for the tournament with you as player 1 and a captain. Usage: >team register "<team name>" @player2 @player3
         """
         try:
             self.teams_db.find_first('name', team_name)
@@ -231,8 +212,6 @@ class Tournament(commands.Cog):
     async def team_leave(self, ctx):
         """
         Leave the team you're currently registered with. If you are a captain, the team will be disbanded.
-        :param ctx:
-        :return:
         """
         try:
             _player = self.players_db.find_first("discord_id", ctx.author.id)
@@ -261,6 +240,12 @@ class Tournament(commands.Cog):
             await ctx.send(f"{ctx.author.mention}, you have left team {_team.name} successfully.")
         self.players_db.save()
         self.teams_db.save()
+
+    @team.command(name='join')
+    async def team_join(self, ctx, team_name):
+        """
+        Join the specified team.
+        """
 
     @tasks.loop(hours=1)
     async def get_played_matches(self):
@@ -362,6 +347,9 @@ class Tournament(commands.Cog):
 
     @commands.command(name="listplayers")
     async def list_players(self, ctx):
+        """
+        List all of the registered players along with their teams, if they are in one.
+        """
         send_string = f"Registered players:"
         for player in self.players_db.db:
             d_user = await self.member_converter.convert(ctx, str(player.discord_id))
