@@ -84,6 +84,23 @@ class Tournament(commands.Cog):
         else:
             return user.nick
 
+    async def is_captain(self, ctx):
+        try:
+            player = self.players_db.find_first("discord_id", ctx.author.id)
+        except KeyError:
+            await ctx.send(f"{ctx.author.mention}, you have to register first.")
+            return False
+
+        if not player.team:
+            await ctx.send(f"{ctx.author.mention}, you are not a captain of any team.")
+            return False
+
+        team = self.teams_db.find_first("name", player.team)
+        if ctx.author.id != team.captain:
+            await ctx.send(f"{ctx.author.mention}, only captain of the team can do this!")
+            return False
+        return True
+
     @commands.command()
     async def register(self, ctx, ingame_name):
         """
@@ -250,6 +267,7 @@ class Tournament(commands.Cog):
         self.teams_db.save()
 
     @team.command(name='add')
+    @commands.check(is_captain)
     async def team_add(self, ctx, player_name):
         """
         Join the specified team.
