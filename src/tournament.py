@@ -84,14 +84,27 @@ class Tournament(commands.Cog):
         else:
             return user.nick
 
+    async def is_captain(self, ctx):
+        try:
+            player = self.players_db.find_first("discord_id", ctx.author.id)
+        except KeyError:
+            await ctx.send(f"{ctx.author.mention}, you have to register first.")
+            return False
+
+        if not player.team:
+            await ctx.send(f"{ctx.author.mention}, you are not a captain of any team.")
+            return False
+
+        team = self.teams_db.find_first("name", player.team)
+        if ctx.author.id != team.captain:
+            await ctx.send(f"{ctx.author.mention}, only captain of the team can do this!")
+            return False
+        return True
+
     @commands.command()
     async def register(self, ctx, ingame_name):
         """
-        Register a player.
-
-        :param ctx:
-        :param ingame_name:
-        :return:
+        Register yourself for the tournament.
         """
         if not (self.registration_open or Tournament.TESTING):
             await ctx.send(f'The registration has not been opened yet!')
@@ -115,9 +128,6 @@ class Tournament(commands.Cog):
     async def changenick(self, ctx, new_name):
         """
         Changes your in-game nick that you have set during the registration."
-        :param ctx:
-        :param new_name:
-        :return:
         """
         try:
             player = self.players_db.find_first("discord_id", ctx.author.id)
@@ -133,14 +143,11 @@ class Tournament(commands.Cog):
     async def player(self, ctx, player_name):
         """
         Mention a discord user in this command to see if he's registered and playing for any team.
-        :param ctx:
-        :param player_name:
-        :return:
         """
         try:
             user = await self.member_converter.convert(ctx, player_name)
         except commands.MemberNotFound:
-            await ctx.send(f'{ctx.author.mention}, wrong argument.')
+            await ctx.send(f'{ctx.author.mention}, wrong argument. - this user has not been found.')
             return True
         try:
             player = self.players_db.find_first("discord_id", user.id)
@@ -157,11 +164,13 @@ class Tournament(commands.Cog):
     async def team(self, ctx, team_name):
         """
         Command group for calling team-related commands. Can be called by itself to show info about a team.
-
-        :param ctx:
-        :param team_name:
-        :return:
         """
+        # check if they have mentioned the team role
+        try:
+            team_role = await commands.RoleConverter().convert(ctx, team_name)
+            team_name = team_role.name
+        except commands.RoleNotFound:
+            pass
         try:
             _team = self.teams_db.find_first("name", team_name)
             player_names = []
@@ -181,12 +190,7 @@ class Tournament(commands.Cog):
     @team.command(name='register')
     async def team_register(self, ctx, team_name, *players):
         """
-        Register a team for the tournament.
-
-        :param ctx:
-        :param team_name:
-        :param players:
-        :return:
+        Register a team for the tournament with you as player 1 and a captain. Usage: >team register "<team name>" @player2 @player3
         """
         try:
             self.teams_db.find_first('name', team_name)
@@ -203,13 +207,15 @@ class Tournament(commands.Cog):
                 _player = self.players_db.find_first("discord_id", _p.id)
                 if _player.team:
                     await ctx.send(f'Cannot register the team. {_p.mention} is already registered with team {_player.team}.')
-                    return True
+                    return False
                 team_players.append(_p.id)
                 _player.team = team_name
             except commands.MemberNotFound:
                 await ctx.send(f"Error while parsing player names for team registration.")
+                return False
             except KeyError:
                 await ctx.send(f"Cannot register the team. {_p.mention} is not registered yet as a player.")
+                return False
         # Register the team on challonge
         _team = Team(team_name, ctx.author.id, *team_players)
         participant = challonge.participants.create(self.full_url, _team.name)
@@ -231,8 +237,6 @@ class Tournament(commands.Cog):
     async def team_leave(self, ctx):
         """
         Leave the team you're currently registered with. If you are a captain, the team will be disbanded.
-        :param ctx:
-        :return:
         """
         try:
             _player = self.players_db.find_first("discord_id", ctx.author.id)
@@ -261,6 +265,32 @@ class Tournament(commands.Cog):
             await ctx.send(f"{ctx.author.mention}, you have left team {_team.name} successfully.")
         self.players_db.save()
         self.teams_db.save()
+
+    @team.command(name='add')
+    @commands.check(is_captain)
+    async def team_add(self, ctx, player_name):
+        """
+        Join the specified team.
+        """
+        try:
+            d_user = await self.member_converter.convert(ctx, player_name)
+            player = self.players_db.find_first("discord_id", d_user.id)
+        except commands.MemberNotFound:
+            await ctx.send(f"{ctx.author.mention}, discord user {player_name} not found.")
+            return False
+        except KeyError:
+            await ctx.send(f"{ctx.author.mention}, {d_user.mention} has not registered yet.")
+            return False
+
+        captain = self.players_db.find_first("discord_id", ctx.author.id)
+        team = self.teams_db.find_first("name", captain.team)
+        team.players.add(player.discord_id)
+        player.team = team.name
+
+        await ctx.send(f"{ctx.author.mention}, {d_user.mention} *({player.ingame_name})* has been added to your team.")
+        self.players_db.save()
+        self.teams_db.save()
+        return True
 
     @tasks.loop(hours=1)
     async def get_played_matches(self):
@@ -362,6 +392,9 @@ class Tournament(commands.Cog):
 
     @commands.command(name="listplayers")
     async def list_players(self, ctx):
+        """
+        List all of the registered players along with their teams, if they are in one.
+        """
         send_string = f"Registered players:"
         for player in self.players_db.db:
             d_user = await self.member_converter.convert(ctx, str(player.discord_id))

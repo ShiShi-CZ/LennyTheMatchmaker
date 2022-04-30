@@ -20,7 +20,7 @@ class Lenny(commands.Bot):
         self.matchmaking_users = None
         self.opt_in_users = None
         self.matchmaking_role = None
-        self.bot = None
+        self.bot_user = None
         self.tournament_id = environ['CHALLONGE_TOURNAMENT_ID']
         self.challonge_api_token = environ['CHALLONGE_API_TOKEN']
         super().__init__(">", *args, **kwargs)
@@ -36,11 +36,11 @@ class Lenny(commands.Bot):
         self.matchmaking_role = self.guild.get_role(MATCHMAKING_ROLE_ID)
         self.opt_in_users = set()
         self.matchmaking_users = set()
-        self.bot = self.guild.get_member(913547605844299776)
+        self.bot_user = self.guild.get_member(913547605844299776)
 
         # Remove it's own reaction before checking them if they are there by any chance
-        await self.message.remove_reaction(REACTION_KEEP_ROLE, self.bot)    # number is the bot's USER ID
-        await self.message.remove_reaction(REACTION_OPT_IN, self.bot)
+        await self.message.remove_reaction(REACTION_KEEP_ROLE, self.bot_user)    # number is the bot's USER ID
+        await self.message.remove_reaction(REACTION_OPT_IN, self.bot_user)
 
         # Read reactions on the message at startup
         for reaction in self.message.reactions:
